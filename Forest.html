@@ -1,5 +1,6 @@
 <!--Sources Used: 
-webgl_geometry_terrain_raycast.html-->
+webgl_geometry_terrain_raycast.html
+NekoStark lsystem-threejs-unifi github repo-->
 <!DOCTYPE html>
 <html>
   <head>
@@ -75,6 +76,136 @@ webgl_geometry_terrain_raycast.html-->
     grassTexture.wrapT = THREE.RepeatWrapping;
     grassTexture.repeat.set(10, 10);
     terrainMaterial.material.map = grassTexture;
+    
+    function treeBuilder(string, params, startingPosition) {
+      this.string = string;
+      this.params = params;
+      this.build = function() {
+        
+        const state = {
+          bRadius: this.params.branchRadius,
+          bLength: this.params.branchLength,
+          bReduction: this.params.branchReduction,
+          bMinRadius: this.params.branchMinRadius,
+          position: startingPosition ? startingPosition.clone() : new THREE.Vector3(0, 0, 0),
+          rotation: new THREE.Quaternion()
+        };
+        
+        const stateStack = [];
+        const tree = new THREE.Object3D();
+        const branchMaterial = new THREE.MeshStandardMaterial({
+          color: this.params.branchColor, flatShading: true
+        });
+        
+        const leafMaterial = new THREE.MeshStandardMaterial({
+          color: this.params.leafColor, flatShading: true
+        });
+        
+        for (let i = 0; i < this.string.length; i++) {
+          const char = this.string.charAt(i);
+          
+          if (char === "F") tree.add(buildBranch(state, branchMaterial));
+          if (char === "X" || char === "L") tree.add(buildLeaf(state, leafMaterial));
+          if (char === "+") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1),  this.params.delta * Math.PI / 180));
+          if (char === "-") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -this.params.delta * Math.PI / 180));
+          if (char === "&") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this.params.delta * Math.PI / 180));
+          if (char === "^") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0),  this.params.delta * Math.PI / 180));
+          if (char === "<") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -this.params.delta * Math.PI / 180));
+          if (char === ">") state.rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0),  this.params.delta * Math.PI / 180));
+          if (char === "[") {
+            stateStack.push(cloneState(state));
+            state.bRadius = (state.bRadius - state.bReduction) > state.bMinRadius
+            ? (state.bRadius - state.bReduction)
+            : state.bMinRadius;
+          }
+          
+          if (char === "]") {
+            const s = stateStack.pop();
+            Object.assign(state, cloneState(s));
+          }
+        }
+        tree.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        return tree;
+      };
+    }
+    
+    function buildBranch(state, material) {
+      const position = new THREE.Vector3(0.0, state.bLength / 2, 0.0);
+      position.applyQuaternion(state.rotation);
+      state.position.add(position);
+      
+      const geometry = new THREE.CylinderGeometry(state.bRadius, state.bRadius, state.bLength, 8);
+      const branch = new THREE.Mesh(geometry, material);
+      
+      branch.quaternion.copy(state.rotation);
+      branch.position.copy(state.position);
+      branch.castShadow = true;
+      state.position.add(position);
+      return branch;
+    }
+    
+    function buildLeaf(state, material) {
+      const originalPosition = new THREE.Vector3().copy(state.position);
+      const position = new THREE.Vector3(0, state.bLength / 8, 0.0);
+      position.applyQuaternion(state.rotation);
+      state.position.add(position);
+      
+      const geometry = new THREE.SphereGeometry(state.bLength / 4, 8, 6);
+      const leaf = new THREE.Mesh(geometry, material);
+      
+      leaf.quaternion.copy(state.rotation);
+      leaf.position.copy(state.position);
+      leaf.castShadow = true;
+      state.position = new THREE.Vector3().copy(originalPosition);
+      return leaf;
+    }
+    
+    function cloneState(state) {
+      return {
+        bRadius: state.bRadius,
+        bLength: state.bLength,
+        bReduction: state.bReduction,
+        bMinRadius: state.bMinRadius,
+        position: new THREE.Vector3().copy(state.position),
+        rotation: new THREE.Quaternion().copy(state.rotation)
+      };
+    }
+    
+    const treeGrammars = {
+      "F": "FF",
+      "X": "F[+X][-X]FX"
+    };
+    const treeAxiom = "X";
+    const treeIterations = 3;
+    const treeAngle = 25;
+    
+    function simpleExpand(axiom, rules, iterations) {
+      let s = axiom;
+
+      for (let i = 0; i < iterations; i++) {
+        let next = '';
+        for (const ch of s) next += rules[ch] || ch;s = next;
+      }
+      return s;
+    }
+    
+    const treeString = simpleExpand(treeAxiom, treeGrammars, treeIterations);
+    console.log('expanded length:', treeString.length);
+    
+    const params = {
+      delta: treeAngle,
+      branchLength: 1.0,
+      branchRadius: 0.30,
+      branchReduction: 0.05,
+      branchMinRadius: 0.02,
+      branchColor: 0x5a3b1a,
+      leafColor: 0x3a7a2a,
+    };
+    
+    const tree = new treeBuilder(treeString, params, new THREE.Vector3(0, 0, 0)).build();
+    const originHeight = forest[125 * worldWidth + 125] * 0.25;
+    tree.position.set(0, originHeight, 0);
+    scene.add(tree);
 
 
     function animate(){
