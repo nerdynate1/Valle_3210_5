@@ -1,0 +1,81 @@
+<!--Sources Used: 
+webgl_geometry_terrain_raycast.html-->
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>CSC3210 Walk through a forest</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="myCanvas"></canvas>
+    <script type="module">
+    import * as THREE from 'three';
+    import Stats from 'three/addons/libs/stats.module.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      500
+    );
+    camera.position.set(0, 60, 120);
+    camera.lookAt(0, 5, 0);
+    const renderer = new THREE.WebGLRenderer({
+      canvas: document.getElementById('myCanvas'),
+      antialias: true
+    });
+    renderer.setClearColor(0x000000);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    const worldWidth = 250, worldDepth = 250;
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.update();
+
+    const forest = generateHeight(worldWidth, worldDepth);
+    const terrainGeometry = new THREE.PlaneGeometry(200, 200, worldWidth - 1, worldDepth - 1);
+    terrainGeometry.rotateX(-Math.PI / 2);
+    const vertices = terrainGeometry.attributes.position.array;
+    for (let i = 0, j = 0, l = vertices.length; i < l; i++, j += 3) {
+      vertices[j + 1] = forest[i] * 0.25;
+    }
+    terrainGeometry.computeVertexNormals();
+
+    const terrainMaterial = new THREE.Mesh(terrainGeometry, new THREE.MeshStandardMaterial({ color: 0x228B22}));
+    scene.add(terrainMaterial);
+
+    function generateHeight(width, height) {
+      const size = width * height, data = new Uint8Array(size),
+      perlin = new ImprovedNoise(), z = Math.random() * 100;
+      let quality = 1;
+      for (let j = 0; j < 4; j++) {
+        for (let i = 0; i < size; i++) {
+          const x = i % width, y = ~~(i / width);
+          data[i] += Math.abs(perlin.noise(x / quality, y / quality, z) * quality * 1.75);
+        }
+        quality *= 5;
+      }
+      return data;
+    }
+    scene.add(new THREE.AmbientLight(0xcccccc));
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+    sunLight.position.set(1, 1, 0.5).normalize();
+    scene.add(sunLight);
+
+
+    function animate(){
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+    </script>
+    </body>
+</html>
