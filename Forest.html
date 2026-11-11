@@ -49,7 +49,7 @@ webgl_geometry_terrain_raycast.html-->
     }
     terrainGeometry.computeVertexNormals();
 
-    const terrainMaterial = new THREE.Mesh(terrainGeometry, new THREE.MeshStandardMaterial({ color: 0x228B22}));
+    const terrainMaterial = new THREE.Mesh(terrainGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff}));
     scene.add(terrainMaterial);
 
     function generateHeight(width, height) {
@@ -69,6 +69,12 @@ webgl_geometry_terrain_raycast.html-->
     const sunLight = new THREE.DirectionalLight(0xffffff, 1);
     sunLight.position.set(1, 1, 0.5).normalize();
     scene.add(sunLight);
+
+    const grassTexture = new THREE.TextureLoader().load('forestFloor1.jpeg');
+    grassTexture.wrapS = THREE.RepeatWrapping;
+    grassTexture.wrapT = THREE.RepeatWrapping;
+    grassTexture.repeat.set(10, 10);
+    terrainMaterial.material.map = grassTexture;
 
 
     function animate(){
