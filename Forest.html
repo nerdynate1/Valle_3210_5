@@ -1,7 +1,8 @@
 <!--Sources Used: 
 webgl_geometry_terrain_raycast.html
 NekoStark lsystem-threejs-unifi github repo
-three.js webgl_mesh_batch.html-->
+three.js webgl_mesh_batch.html
+three.js misc_controls_pointerlock.html-->
 <!DOCTYPE html>
 <html>
   <head>
@@ -14,13 +15,47 @@ three.js webgl_mesh_batch.html-->
         }
       }
     </script>
+    <style>
+			#blocker {
+				position: absolute;
+				width: 100%;
+				height: 100%;
+				background-color: rgba(0,0,0,0.5);
+			}
+
+			#instructions {
+				width: 100%;
+				height: 100%;
+
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				align-items: center;
+
+				text-align: center;
+				font-size: 14px;
+				cursor: pointer;
+			}
+		</style>
   </head>
   <body>
+    <div id="blocker">
+			<div id="instructions">
+				<p style="font-size:36px">
+					Click to play
+				</p>
+				<p>
+					Move: WASD<br/>
+					Jump: SPACE<br/>
+					Look: MOUSE
+				</p>
+			</div>
+		</div>
     <canvas id="myCanvas"></canvas>
     <script type="module">
     import * as THREE from 'three';
     import Stats from 'three/addons/libs/stats.module.js';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import {PointerLockControls} from 'three/addons/controls/PointerLockControls.js';
     import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
     import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
     const scene = new THREE.Scene();
@@ -30,8 +65,6 @@ three.js webgl_mesh_batch.html-->
       0.1,
       500
     );
-    camera.position.set(0, 60, 120);
-    camera.lookAt(0, 5, 0);
     const renderer = new THREE.WebGLRenderer({
       canvas: document.getElementById('myCanvas'),
       antialias: true
@@ -41,8 +74,6 @@ three.js webgl_mesh_batch.html-->
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     const worldWidth = 250, worldDepth = 250;
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.update();
 
     const forest = generateHeight(worldWidth, worldDepth);
     const terrainGeometry = new THREE.PlaneGeometry(200, 200, worldWidth - 1, worldDepth - 1);
@@ -266,8 +297,89 @@ three.js webgl_mesh_batch.html-->
   
   forestMesh.instanceMatrix.needsUpdate = true;
   scene.add(forestMesh);
+
+  const eyeHeight = 5;
+  const walkingSpeed = 10;
+  camera.position.set(0, sampleHeight(0, 0) + eyeHeight, 0);
+  const controls = new PointerLockControls(camera, renderer.domElement);
+  const blocker = document.getElementById( 'blocker' );
+	const instructions = document.getElementById( 'instructions' );
+  instructions.addEventListener( 'click', function () {
+    controls.lock();
+  });
+  controls.addEventListener( 'lock', function () {
+    instructions.style.display = 'none';
+    blocker.style.display = 'none';
+  });
+  controls.addEventListener( 'unlock', function () {
+    blocker.style.display = 'block';
+    instructions.style.display = '';
+  });
+  scene.add( controls.object );
+
+  let moveForward = false;
+	let moveBackward = false;
+	let moveLeft = false;
+	let moveRight = false;
+
+  const onKeyDown = function ( event ) {
+    switch ( event.code ) {
+      case 'ArrowUp':
+      case 'KeyW':
+      moveForward = true;
+      break;
+      case 'ArrowLeft':
+      case 'KeyA':
+      moveLeft = true;
+      break;
+      case 'ArrowDown':
+      case 'KeyS':
+      moveBackward = true;
+      break;
+      case 'ArrowRight':
+      case 'KeyD':
+      moveRight = true;
+      break;
+    }
+  };
+
+  const onKeyUp = function ( event ) {
+    switch ( event.code ) {
+      case 'ArrowUp':
+			case 'KeyW':
+			moveForward = false;
+			break;
+      case 'ArrowLeft':
+			case 'KeyA':
+			moveLeft = false;
+			break;
+      case 'ArrowDown':
+			case 'KeyS':
+			moveBackward = false;
+			break;
+      case 'ArrowRight':
+			case 'KeyD':
+			moveRight = false;
+			break;
+    }
+  };
+    document.addEventListener( 'keydown', onKeyDown );
+    document.addEventListener( 'keyup', onKeyUp );
+
+    const clock = new THREE.Clock();
     function animate(){
       requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.1);
+      if (controls.isLocked) {
+        const forwardAmount = Number(moveForward) - Number(moveBackward);
+        const rightAmount = Number(moveRight) - Number(moveLeft);
+        if (forwardAmount !== 0) controls.moveForward(forwardAmount * walkingSpeed * delta);
+        if (rightAmount !== 0) controls.moveRight(rightAmount * walkingSpeed * delta);
+        camera.position.x = Math.max(-100 + 1, Math.min(100 - 1, camera.position.x));
+        camera.position.z = Math.max(-100 + 1, Math.min(100 - 1, camera.position.z));
+        const targetY = sampleHeight(camera.position.x, camera.position.z) + eyeHeight;
+        camera.position.y += (targetY - camera.position.y) * Math.min(1, delta * 10);
+      }
       renderer.render(scene, camera);
     }
     animate();
