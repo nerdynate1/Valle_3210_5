@@ -2,7 +2,11 @@
 webgl_geometry_terrain_raycast.html
 NekoStark lsystem-threejs-unifi github repo
 three.js webgl_mesh_batch.html
-three.js misc_controls_pointerlock.html-->
+three.js misc_controls_pointerlock.html
+three.js webgl_lights_physical.html
+youtube video: https://www.youtube.com/watch?v=Uoe7rnj5IPk
+youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
+-->
 <!DOCTYPE html>
 <html>
   <head>
@@ -10,8 +14,8 @@ three.js misc_controls_pointerlock.html-->
     <script type="importmap">
       {
         "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+          "three": "https://cdn.jsdelivr.net/npm/three@0.171.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.171.0/examples/jsm/"
         }
       }
     </script>
@@ -42,8 +46,8 @@ three.js misc_controls_pointerlock.html-->
         top: 50%;
         left: 50%;
         background-color: white;
-        width: 4px;
-        height: 4px;
+        width: 6px;
+        height: 6px;
       }
 		</style>
   </head>
@@ -64,7 +68,6 @@ three.js misc_controls_pointerlock.html-->
     <canvas id="myCanvas"></canvas>
     <script type="module">
     import * as THREE from 'three';
-    import Stats from 'three/addons/libs/stats.module.js';
     import {PointerLockControls} from 'three/addons/controls/PointerLockControls.js';
     import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
     import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
@@ -111,7 +114,8 @@ three.js misc_controls_pointerlock.html-->
       }
       return data;
     }
-    scene.add(new THREE.AmbientLight(0xcccccc));
+    const ambientLight = new THREE.AmbientLight(0xcccccc);
+    scene.add(ambientLight);
     const sunLight = new THREE.DirectionalLight(0xffffff, 1);
     sunLight.position.set(1, 1, 0.5);
     scene.add(sunLight);
@@ -128,21 +132,6 @@ three.js misc_controls_pointerlock.html-->
     grassTexture.wrapT = THREE.RepeatWrapping;
     grassTexture.repeat.set(10, 10);
     terrainMaterial.material.map = grassTexture;
-    
-    function buildBranch(state, material) {
-      const position = new THREE.Vector3(0.0, state.bLength / 2, 0.0);
-      position.applyQuaternion(state.rotation);
-      state.position.add(position);
-      
-      const geometry = new THREE.CylinderGeometry(state.bRadius, state.bRadius, state.bLength, 8);
-      const branch = new THREE.Mesh(geometry, material);
-      
-      branch.quaternion.copy(state.rotation);
-      branch.position.copy(state.position);
-      branch.castShadow = true;
-      state.position.add(position);
-      return branch;
-    }
     
     function cloneState(state) {
       return {
@@ -174,7 +163,6 @@ three.js misc_controls_pointerlock.html-->
     }
     
     const treeString = simpleExpand(treeAxiom, treeGrammars, treeIterations);
-    console.log('expanded length:', treeString.length);
     
     const params = {
       delta: treeAngle,
@@ -376,10 +364,126 @@ three.js misc_controls_pointerlock.html-->
     document.addEventListener( 'keydown', onKeyDown );
     document.addEventListener( 'keyup', onKeyUp );
 
+    const sunOrbitRadius = 100;
+    const sunCycles = 240;
+    let timeOfDay = 0.5;
+
+    const sunSurface = new THREE.ShaderMaterial({uniforms:{uTime:{value:0}},
+    vertexShader:`
+    varying vec3 vPos;
+    void main(){
+    vPos = position;
+    gl_Position = projectionMatrix * modelViewMatrix *vec4(position,1.0);
+    }`,
+    fragmentShader:`
+    uniform float uTime;
+    float hash(vec3 p){
+    p = fract(p * 0.3183099 + 0.1) * 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+    }
+    
+    float noise(vec3 p){
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f*f*(3.0-2.0*f);
+    float n = 0.0;
+    for (int k = 0; k < 8; k++){
+    vec3 o = vec3(k & 1, (k >> 1) & 1, k >> 2);
+    vec3 w = mix(1.0 - f, f, o);
+    n += hash(i + o) * w.x * w.y * w.z;
+    }
+    return n;
+    }
+    
+    float fbm(vec3 p){
+    float v = 0.0;
+    float a = 0.5;
+    for(int k = 0; k < 5; k++){
+    v += a * noise(p);
+    p *= 2.0;
+    a *= 0.5;
+    }
+    return v;
+    }
+    
+    varying vec3 vPos;
+    
+    void main(){
+    vec3 p = vPos * 2.4;
+    float n = fbm(p + fbm(p + uTime * 0.12));
+    n = smoothstep(0.2, 0.8, n);
+    vec3 col = mix(vec3(0.7, 0.1, 0.0), vec3(1.0, 0.5, 0.05), n);
+    col = mix(col, vec3(1.0, 0.9, 0.55), smoothstep(0.6, 0.9, n));
+    gl_FragColor = vec4(col,1.0);
+    }`});
+    
+    const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), sunSurface);
+    scene.add(sunMesh);
+
+    const moonMaterial = new THREE.MeshBasicMaterial({
+      map: new THREE.TextureLoader().load('moon.jpeg')
+    });
+    const moonGeometry = new THREE.SphereGeometry(5, 32, 32);
+    const moonMesh = new THREE.Mesh(moonGeometry, moonMaterial);
+    moonMesh.castShadow = true;
+    scene.add(moonMesh);
+
+    const moonLight = new THREE.DirectionalLight(0xaaaaaa, 0.5);
+    moonLight.position.set(1, 1, 0.5);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.set(1024, 1024);      
+    moonLight.shadow.camera.left = -100;
+    moonLight.shadow.camera.right = 100;
+    moonLight.shadow.camera.top = 100;
+    moonLight.shadow.camera.bottom = -100;
+    scene.add(moonLight);
+    scene.add(moonLight.target);
+
+    const dayBrightness = new THREE.Color(0x87ceeb);
+    const nightBrightness = new THREE.Color(0x0b1020);
+    const noonColor = new THREE.Color(0xfff4e0);
+    const sunsetColor = new THREE.Color(0xff6a2a);
+
     const clock = new THREE.Clock();
     function animate(){
       requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.1);
+      timeOfDay += delta / sunCycles;
+      
+      if (timeOfDay > 1) timeOfDay -= 1;
+      const sunAngle = (timeOfDay - 0.25) * Math.PI * 2;
+      const sunHeight = Math.sin(sunAngle);
+      const sunX = Math.cos(sunAngle) * sunOrbitRadius;
+      const sunY = sunHeight * sunOrbitRadius;
+      const sunZ = Math.sin(sunAngle) * sunOrbitRadius * 0.4;
+      sunLight.position.set(sunX, sunY, sunZ);
+      sunLight.target.position.set(0, 0, 0);
+      sunLight.target.updateMatrixWorld();
+      const dayFactor = Math.max(0, sunHeight);
+      const duskFactor = Math.pow(Math.max(0, 1 - Math.abs(sunHeight) / 0.3), 1.4);
+      const colorMix = THREE.MathUtils.smoothstep(dayFactor, 0.0, 0.3);
+      sunLight.color.copy(sunsetColor).lerp(noonColor, colorMix);
+      sunLight.intensity = dayFactor * 1.5;
+      const brightness = dayBrightness.clone()
+      .lerp(nightBrightness, 1 - dayFactor)
+      .lerp(sunLight.color, duskFactor * 0.6);
+      scene.background = brightness;
+      const t = clock.getElapsedTime();
+      sunSurface.uniforms.uTime.value = t;
+      sunMesh.rotation.y = t * 0.05;
+      sunLight.color.copy(sunsetColor).lerp(noonColor, colorMix);
+      sunLight.intensity = dayFactor * 1.5;
+      sunMesh.position.set(sunX, sunY, sunZ);
+      const moonX = -sunX;
+      const moonY = -sunY;
+      const moonZ = -sunZ;
+      moonMesh.position.set(moonX, moonY, moonZ);
+      moonLight.position.set(moonX, moonY, moonZ);
+      moonLight.target.position.set(0, 0, 0);
+      moonLight.target.updateMatrixWorld();
+      const nightFactor = Math.max(0, -sunHeight); 
+      moonLight.intensity = nightFactor * 0.4;
+      
       if (controls.isLocked) {
         const forwardAmount = Number(moveForward) - Number(moveBackward);
         const rightAmount = Number(moveRight) - Number(moveLeft);
@@ -389,7 +493,7 @@ three.js misc_controls_pointerlock.html-->
         camera.position.z = Math.max(-100 + 1, Math.min(100 - 1, camera.position.z));
         const targetY = sampleHeight(camera.position.x, camera.position.z) + eyeHeight;
         camera.position.y += (targetY - camera.position.y) * Math.min(1, delta * 10);
-      }
+    }
       renderer.render(scene, camera);
     }
     animate();
