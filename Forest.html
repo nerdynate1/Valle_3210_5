@@ -6,6 +6,7 @@ three.js misc_controls_pointerlock.html
 three.js webgl_lights_physical.html
 youtube video: https://www.youtube.com/watch?v=Uoe7rnj5IPk
 youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
+three.js games_fps.html
 -->
 <!DOCTYPE html>
 <html>
@@ -71,6 +72,8 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
     import {PointerLockControls} from 'three/addons/controls/PointerLockControls.js';
     import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
     import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+    import {Octree} from 'three/addons/math/Octree.js';
+    import {Capsule} from 'three/addons/math/Capsule.js';
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       75,
@@ -296,9 +299,40 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
   forestMesh.instanceMatrix.needsUpdate = true;
   scene.add(forestMesh);
 
+  const worldOctree = new Octree();
+  const treeColliderGeometry = new THREE.CylinderGeometry(0.4, 0.6, 8, 6);
+  const treeColliderMaterial = new THREE.MeshBasicMaterial();
+  const colliderGroup = new THREE.Group();
+  
+  for (let i = 0; i < treeCount; i++) {
+    const matrix = new THREE.Matrix4();
+    forestMesh.getMatrixAt(i, matrix);
+    
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale    = new THREE.Vector3();
+    matrix.decompose(position, rotation, scale);
+    const collider = new THREE.Mesh(treeColliderGeometry, treeColliderMaterial);
+    collider.position.copy(position);
+    collider.position.y += 4 * scale.y;
+    collider.quaternion.copy(rotation);
+    collider.scale.set(scale.x, scale.y, scale.z);
+    collider.updateMatrixWorld(true);
+    colliderGroup.add(collider);
+  }
+  worldOctree.fromGraphNode(colliderGroup);
+
   const eyeHeight = 5;
   const walkingSpeed = 10;
-  camera.position.set(0, sampleHeight(0, 0) + eyeHeight, 0);
+  const userRadius = 0.4;
+
+  const groundStart = sampleHeight(0, 0);
+  const playerCollider = new Capsule(
+    new THREE.Vector3(0, groundStart + userRadius, 0),
+    new THREE.Vector3(0, groundStart + eyeHeight, 0),userRadius
+  );
+  camera.position.copy(playerCollider.end);
+
   const controls = new PointerLockControls(camera, renderer.domElement);
   const blocker = document.getElementById( 'blocker' );
 	const instructions = document.getElementById( 'instructions' );
@@ -315,10 +349,17 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
   });
   scene.add( controls.object );
 
+  const flashlight = new THREE.SpotLight(0xffffff, 0, 100, Math.PI / 6, 0.5, 1);
+  flashlight.position.set(0, 0, 0);
+  flashlight.target.position.set(0, 0, -1);
+  controls.object.add(flashlight);
+  controls.object.add(flashlight.target);
+
   let moveForward = false;
 	let moveBackward = false;
 	let moveLeft = false;
 	let moveRight = false;
+  let flashlightOn = false;
 
   const onKeyDown = function ( event ) {
     switch ( event.code ) {
@@ -337,6 +378,12 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
       case 'ArrowRight':
       case 'KeyD':
       moveRight = true;
+      break;
+      case 'KeyF':
+      if (!event.repeat) {
+        flashlightOn = !flashlightOn;
+        flashlight.intensity = flashlightOn ? 150 : 0;
+      }
       break;
     }
   };
@@ -460,6 +507,7 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
       sunLight.target.position.set(0, 0, 0);
       sunLight.target.updateMatrixWorld();
       const dayFactor = Math.max(0, sunHeight);
+      ambientLight.intensity = 0.05 + dayFactor * 0.95;
       const duskFactor = Math.pow(Math.max(0, 1 - Math.abs(sunHeight) / 0.3), 1.4);
       const colorMix = THREE.MathUtils.smoothstep(dayFactor, 0.0, 0.3);
       sunLight.color.copy(sunsetColor).lerp(noonColor, colorMix);
@@ -493,7 +541,18 @@ youtube video: https://www.youtube.com/watch?v=Bd3I_cHZyGo
         camera.position.z = Math.max(-100 + 1, Math.min(100 - 1, camera.position.z));
         const targetY = sampleHeight(camera.position.x, camera.position.z) + eyeHeight;
         camera.position.y += (targetY - camera.position.y) * Math.min(1, delta * 10);
-    }
+        playerCollider.end.copy(camera.position);
+        playerCollider.start.set(
+          camera.position.x,camera.position.y - eyeHeight + userRadius,
+          camera.position.z
+        );
+        const hit = worldOctree.capsuleIntersect(playerCollider);
+        
+        if (hit && hit.depth > 1e-6) {
+          camera.position.x += hit.normal.x * hit.depth;
+          camera.position.z += hit.normal.z * hit.depth;
+        }
+      }
       renderer.render(scene, camera);
     }
     animate();
